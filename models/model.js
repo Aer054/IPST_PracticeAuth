@@ -1,20 +1,35 @@
-
 const { DataTypes } = require('sequelize');
-const sequelize = require('../db'); 
+const sequelize = require('../db');
 
 const User = sequelize.define('User', {
   username: {
     type: DataTypes.STRING(15),
     allowNull: false,
-    primaryKey: true
+    primaryKey: true,
+    validate: {
+      len: {
+        args: [1, 15],
+        msg: 'Никнейм должен быть от 1 до 15 символов'
+      }
+    }
   },
   name: {
     type: DataTypes.STRING(255),
-    allowNull: false
+    allowNull: false,
+    validate: {
+      notEmpty: {
+        msg: 'Имя не должно быть пустым'
+      }
+    }
   },
   surname: {
     type: DataTypes.STRING(255),
-    allowNull: false
+    allowNull: false,
+    validate: {
+      notEmpty: {
+        msg: 'Фамилия не должна быть пустой'
+      }
+    }
   },
   middlename: {
     type: DataTypes.STRING(255),
@@ -23,13 +38,24 @@ const User = sequelize.define('User', {
   email: {
     type: DataTypes.STRING(255),
     allowNull: false,
+    unique: {
+      msg: 'Этот email уже используется'
+    },
     validate: {
-      isEmail: true
+      isEmail: {
+        msg: 'Некорректный email'
+      }
     }
   },
   password: {
-    type: DataTypes.STRING(50),
-    allowNull: false
+    type: DataTypes.STRING(255),
+    allowNull: false,
+    validate: {
+      len: {
+        args: [8, 255],
+        msg: 'Пароль должен быть не менее 8 символов'
+      }
+    }
   },
   is_confirmed: {
     type: DataTypes.BOOLEAN,

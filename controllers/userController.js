@@ -4,23 +4,22 @@ const {User}=require('../models/model')
 const jwt=require('jsonwebtoken')
 const nodemailer = require('nodemailer');
 
+const transporter = nodemailer.createTransport({
+    host: 'smtp.mail.ru',
+    port: 465, 
+    secure: true, 
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD
+    }
+});
 const generateEmailConfirmationToken = (username) => {
-    return jwt.sign({ username }, process.env.SECRET_KEY, { expiresIn: '1d' });
+    return jwt.sign({ username }, process.env.SECRET_KEY, { expiresIn: '30m' });
 };
 
 const sendConfirmationEmail = async (user) => {
     const token = generateEmailConfirmationToken(user.username);
     const confirmationUrl = `http://${process.env.DB_HOST}:${process.env.PORT}/api/user/confirm/${token}`;
-
-    let transporter = nodemailer.createTransport({
-        host: 'smtp.mail.ru',
-        port: 465, 
-        secure: true, 
-        auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASSWORD
-        }
-    });
 
     let mailOptions = {
         from: process.env.EMAIL_USER, 
@@ -55,7 +54,7 @@ class UserController{
         if (!username || !email || !password || !name || !surname) {
           return next(ApiError.badRequest('Некорректные данные'));
         }
-    
+        try {
         const candidate = await User.findOne({ where: { username } });
         if (candidate) {
           return next(ApiError.badRequest('Пользователь с таким никнеймом уже существует'));
@@ -78,7 +77,13 @@ class UserController{
        await sendConfirmationEmail(user);
 
        return res.json({ message: 'Регистрация прошла успешно. Проверьте свой email для подтверждения.' });
-      }
+    } catch (error) {
+        if (error.name === 'SequelizeValidationError') {
+            return next(ApiError.badRequest(error.errors.map(e => e.message).join('. ')));
+        }
+        return next(ApiError.internal('Ошибка регистрации'));
+    }
+    }
 
     async login(req,res,next){
         const{username,password}=req.body
@@ -104,7 +109,6 @@ class UserController{
 
     async confirmEmail(req, res, next) {
         const { token } = req.params;
-
         try {
             const decoded = jwt.verify(token, process.env.SECRET_KEY);
             const user = await User.findOne({ where: { username: decoded.username } });
@@ -122,9 +126,61 @@ class UserController{
         }
     }
 
-    async passwordReset(req,res){
+    async requestPasswordReset (req,res){
+        try {
+            const user = req.user;
+            if (!user) {
+                return next(ApiError.badRequest('Некорректный токен'));
+            }
+    
+            const token = generateEmailConfirmationToken(user.username);
+            const confirmationUrl = `http://${process.env.DB_HOST}:${process.env.PORT}/api/user/reset-password/${token}`;
+            let mailOptions = {
+            from: process.env.EMAIL_USER, 
+            to: user.email,
+            subject: 'Смена пороля',
+            text: `Для смены пароля перейдите по ссылке: ${confirmationUrl}`,
+            };
+    
+            await transporter.sendMail(mailOptions);
+    
+            return res.json({ message: 'Инструкции по сбросу пароля отправлены на вашу почту' });
+        } catch (error) {
+            return next(ApiError.internal('Ошибка запроса на сброс пароля'));
+        }
 
+        
+       
     }
+    async confirmPasswordReset(req, res, next) {
+        const { token } = req.params;
+
+        try {
+            const decoded = jwt.verify(token, process.env.SECRET_KEY);
+            const user = await User.findOne({ where: { username: decoded.username } });
+
+            if (!user) {
+                return next(ApiError.badRequest('Некорректный токен'));
+            }
+
+            const { currentPassword, newPassword } = req.body;
+
+            const comparePassword = await bcrypt.compare(currentPassword, user.password);
+            if (!comparePassword) {
+                return next(ApiError.badRequest('Текущий пароль неверен'));
+            }
+
+            const hashPassword = await bcrypt.hash(newPassword, 5);
+            user.password = hashPassword;
+            await user.save();
+
+            return res.json({ message: 'Пароль успешно изменен' });
+        } catch (error) {
+            return next(ApiError.internal('Ошибка подтверждения сброса пароля'));
+        }
+    }
+    
+    
 }
 
 module.exports = new UserController()

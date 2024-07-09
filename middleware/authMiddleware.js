@@ -1,5 +1,4 @@
 const jwt = require('jsonwebtoken');
-const ApiError = require('../error/ApiError');
 const { User } = require('../models/model');
 
 module.exports = async function (req, res, next) {
@@ -21,15 +20,15 @@ module.exports = async function (req, res, next) {
         let userData;
         try {
             userData = jwt.verify(token, process.env.SECRET_KEY);
-        } catch (e) {
-            return res.status(401).json({ message: "Не авторизован" });
+            req.user = userData; // сохраняем данные пользователя в запрос для дальнейшего использования
+            return next(); // access токен валиден, продолжаем обработку запроса
+        } catch (err) {
+            if (err.name !== 'TokenExpiredError') {
+                return res.status(401).json({ message: "Не авторизован" });
+            }
         }
-        
-        const user = await User.findOne({ where: { username: userData.username } });
-        if (!user) {
-            return res.status(401).json({ message: "Не авторизован" });
-        }
-        
+
+        // access токен истек, проверяем refresh токен
         const refreshToken = req.body.refreshToken || req.query.refreshToken || req.headers['x-refresh-token'];
         if (!refreshToken) {
             return res.status(401).json({ message: "Требуется refresh токен" });
@@ -41,18 +40,22 @@ module.exports = async function (req, res, next) {
         } catch (e) {
             return res.status(401).json({ message: "Недействительный refresh токен" });
         }
-        
-        if (refreshUserData.username !== userData.username) {
-            return res.status(401).json({ message: "Недействительный refresh токен для этого пользователя" });
+
+        const user = await User.findOne({ where: { username: refreshUserData.username } });
+        if (!user) {
+            return res.status(401).json({ message: "Не авторизован" });
         }
-        
+
+        // генерируем новый access токен
         const newAccessToken = jwt.sign(
-            { username: userData.username, email: userData.email },
+            { username: user.username, email: user.email },
             process.env.SECRET_KEY,
             { expiresIn: '15m', algorithm: 'HS256' }
         );
-        
+
         res.setHeader('Authorization', `Bearer ${newAccessToken}`);
+        req.user = { username: user.username, email: user.email }; // сохраняем данные пользователя в запрос для дальнейшего использования
+
         next();
     } catch (err) {
         console.error("Ошибка в middleware для обновления токенов:", err);
