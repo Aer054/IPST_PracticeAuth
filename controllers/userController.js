@@ -10,12 +10,12 @@ const generateEmailConfirmationToken = (username) => {
 
 const sendConfirmationEmail = async (user) => {
     const token = generateEmailConfirmationToken(user.username);
-    const confirmationUrl = `http://your-app-url/confirm-email/${token}`;
+    const confirmationUrl = `http://${process.env.DB_HOST}:${process.env.PORT}/api/user/confirm/${token}`;
 
     let transporter = nodemailer.createTransport({
         host: 'smtp.mail.ru',
-        port: 465, // или 587
-        secure: true, // true для использования SSL/TLS
+        port: 465, 
+        secure: true, 
         auth: {
             user: process.env.EMAIL_USER,
             pass: process.env.EMAIL_PASSWORD
@@ -23,7 +23,7 @@ const sendConfirmationEmail = async (user) => {
     });
 
     let mailOptions = {
-        from: process.env.EMAIL_USER, // Адрес отправителя должен совпадать с EMAIL_USER
+        from: process.env.EMAIL_USER, 
         to: user.email,
         subject: 'Подтверждение почты',
         text: `Чтобы подтвердить свой email, перейдите по ссылке: ${confirmationUrl}`,
@@ -72,7 +72,7 @@ class UserController{
           is_confirmed: false
         });
     
-        const tokens = generateJWT(user.username, user.email)
+        //const tokens = generateJWT(user.username, user.email)
     
        // return res.json({ tokens });
        await sendConfirmationEmail(user);
@@ -90,6 +90,9 @@ class UserController{
         if(!comparePaswword){
             return next(ApiError.internal('Указан не верный пароль'))
         }
+        if(!user.is_confirmed){
+            return next(ApiError.badRequest('Пожалуйста, подтвердите свою почту перед авторизацией'))
+        }
         const tokens =generateJWT(user.username, user.email)
         return res.json({ tokens });
     }
@@ -97,6 +100,26 @@ class UserController{
     async check(req,res){
         const tokens = generateJWT(req.user.username, req.user.email)
         return res.json({ tokens });
+    }
+
+    async confirmEmail(req, res, next) {
+        const { token } = req.params;
+
+        try {
+            const decoded = jwt.verify(token, process.env.SECRET_KEY);
+            const user = await User.findOne({ where: { username: decoded.username } });
+
+            if (!user) {
+                return next(ApiError.badRequest('Некорректный токен'));
+            }
+
+            user.is_confirmed = true;
+            await user.save();
+
+            return res.json({ message: 'Email успешно подтвержден' });
+        } catch (error) {
+            return next(ApiError.internal('Ошибка подтверждения email'));
+        }
     }
 
     async passwordReset(req,res){
