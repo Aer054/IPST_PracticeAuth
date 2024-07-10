@@ -37,7 +37,7 @@ app.use(errorHandler)
 const start = async()=>{
     try{
         await Sequelize.authenticate()
-        await Sequelize.sync({ force: true })
+        await Sequelize.sync()
         await Sequelize.query(`ALTER TABLE "UserTable" SET (autovacuum_enabled=true);`);
         app.listen(PORT,()=>console.log(`Server started on port ${PORT}`));
     }catch(e){
